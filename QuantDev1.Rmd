@@ -1,0 +1,238 @@
+---
+title: "QuantDev1"
+output: html_notebook
+---
+From
+https://quantdev.ssri.psu.edu/tutorials/intro-data-reshape-plots-wisc
+
+```{r packages}
+library(psych)    #for general use functions
+library(ggplot2)  #for plotting
+library(car)      #for general use functions
+library(GGally)   #for a specicif plot
+library(lattice)  #for plotting
+```
+```{r readdat}
+############################
+####### Reading in the Data
+############################
+#set filepath for data file
+#this has worked but seems dodgy now so read direct from file
+#but command syntax should be useful so retain
+readfromweb<-0
+if(readfromweb==1){
+filepath <- "https://quantdev.ssri.psu.edu/sites/qdev/files/wisc3raw.csv"
+#read in the .csv file using the url() function
+wisc3raw <- read.csv(file=url(filepath),header=TRUE)
+}
+if(readfromweb==0)
+{
+ wisc3raw<- read.csv('wisc3raw.csv')
+}
+
+
+```
+
+Data cleaning etc  
+Some useful tips/tricks here
+
+```{r dataclean}
+colnames(wisc3raw)
+dput(colnames(wisc3raw))  #put into a format that is easy to cut and paste
+
+# Set all variable names to lowercase 
+var_names <- tolower(colnames(wisc3raw))
+colnames(wisc3raw)<-var_names
+
+
+#Output a comma delimited data file;
+write.csv(wisc3raw, file="NewData.csv",row.names=FALSE, na="")
+```
+
+
+## Manipulating the Repeated Measures Data (Long Data and Wide Data)  
+
+(I'm skipping things I am v familiar with here).
+
+```{r subset}
+
+
+#First, lets subset down to the variables we need.
+
+#making a vector of variable names (id, time-varying, time-invariant)
+var_names_sub <- c("id", 
+                   "verb1","verb2","verb4","verb6",
+                   "perfo1","perfo2","perfo4","perfo6",
+                   "momed","grad")
+#subsetting
+wiscraw <- wisc3raw[,var_names_sub]
+
+```
+
+```{r reshaping}
+#reshaping wide to long
+wisclong <- reshape(data=wiscraw,
+                    varying = c("verb1","verb2","verb4","verb6",
+                                "perfo1","perfo2","perfo4","perfo6"),
+                    timevar=c("grade"), 
+                    idvar=c("id"),
+                    direction="long", sep="")
+#sorting for easy viewing
+#reorder by id and day
+wisclong <- wisclong[order(wisclong$id,wisclong$grade), ]
+
+#looking at the data
+head(wisclong, 8)
+
+```
+
+reverse - reshape long to wide
+```{r reshapeagain}
+#reshaping long to wide
+wiscwide <- reshape(data=wisclong, 
+                    timevar=c("grade"), 
+                    idvar=c("id"),
+                    v.names=c("verb","perfo"),
+                    direction="wide", sep="_")
+
+#reordering columns for easy viewing
+wiscwide <- wiscwide[,c("id",
+                        "verb_1","verb_2","verb_4","verb_6",
+                        "perfo_1","perfo_2","perfo_4","perfo_6",
+                        "momed","grad")]
+
+#looking at the data
+head(wiscwide)
+```
+
+A more general reshaping solution is provided by Hadley Wickham’s reshape2 package through melt and cast functions.
+
+```{r basicdescriptives}
+describe(wiscwide)
+```
+
+for repeated measures...
+
+```{r descrepeated}
+describe(wisclong$verb)
+#here ignoring time
+#histogram
+ggplot(data=wisclong, aes(x=verb, y=..density..)) +
+  geom_histogram(binwidth=2.5, fill="white", color="black") + 
+  geom_density(color="red") +
+  xlab("Verbal Ability (Grade 1 to 6)")
+#sample descriptives by occasion 
+#in the wide file
+describe(wiscwide[,c("verb_1","verb_2","verb_4","verb_6")])
+#histogram faceted by grade
+ggplot(data=wisclong, aes(x=verb)) +
+  geom_histogram(binwidth=5, pad = TRUE, fill="white", color="black") + 
+  xlab("Verbal Ability") +
+  facet_grid(grade ~ .)
+
+#boxplot by grade
+qplot(x=factor(grade), y=verb, data=wisclong, geom="boxplot", ylab="Verbal Ability", xlab="Grade")
+
+#use factor() to convert "time" from numeric to categorical
+
+#boxplot by grade
+ggplot(data=wisclong, aes(x=factor(grade), y=verb)) + 
+  geom_boxplot(notch = TRUE) +
+  stat_summary(fun.y="mean", geom="point", shape=23, size=3, fill="white") +
+  labs(x = "Grade", y = "Verbal Ability")
+
+#Density distribution by grade
+ggplot(data=wisclong, aes(x=verb)) + 
+  geom_density(aes(group=factor(grade), colour=factor(grade), fill=factor(grade)), alpha=0.3) +
+  guides(colour=FALSE,
+         fill=guide_legend(title="Grade")) +
+  labs(x="Verbal Ability", y="Density")
+```
+Above, we looked at the means and variances. Because these are repeated measures, we also have covariances.
+
+```{r cors}
+# Correlations 
+cor(wiscwide[,c("verb_1","verb_2","verb_4","verb_6")], use="complete.obs",method="spearman")
+#Correlations plot
+pairs(wiscwide[,c("verb_1","verb_2","verb_4","verb_6")])
+
+#in the psych library
+pairs.panels(wiscwide[,c("verb_1","verb_2","verb_4","verb_6")])
+
+
+```
+## 3.2.3 Individual-level descriptives across Time (Verbal Ability)  
+
+Note that our interest is often in individual development, rather than sample development. We need to consider how each individual is changing over time.
+
+Thus, we are interested in Verbal Ability across Time = individual persons.  
+
+```{r sect3.2.3}
+
+#Using library(lattice)
+#Plotting intraindividual change
+xyplot(verb ~ grade, groups=id, 
+       data=wisclong, type="l",
+       main="Verbal Ability Trajectories")
+
+#Using library(ggplot2) ... see also http://ggplot.yhathq.com/docs/index.html
+#Plotting intraindividual change
+ggplot(data = wisclong, aes(x = grade, y = verb, group = id)) +
+  geom_point() + 
+  geom_line() +
+  xlab("Grade") + 
+  ylab("Verbal Ability") + ylim(0,80) +
+  scale_x_continuous(breaks=seq(1,6,by=1))
+
+#plotting just a subset with colour
+ggplot(data = wisclong[which(wisclong$id <=20),], aes(x = grade, y = verb, group = id, color=factor(id))) +
+  geom_point() + 
+  geom_line(data=wisclong[which(wisclong$id <= 20 & wisclong$verb !="NA"),]) +
+  xlab("Grade") + 
+  ylab("Verbal Ability") + ylim(0,80) +
+  scale_x_continuous(breaks=seq(1,6,by=1)) +
+  guides(color=FALSE)
+
+#old-school style using library(lattice)
+xyplot(verb~grade|id, data=wisclong[wisclong$id<21,], as.table=TRUE)
+
+#ggplot2 style
+ggplot(data = wisclong[which(wisclong$id <=20),], aes(x = grade, y = verb, group = id)) +
+  geom_point() + 
+  geom_line(data=wisclong[which(wisclong$id <= 20 & wisclong$verb !="NA"),]) +
+  xlab("Grade") + 
+  ylab("Verbal Ability") + ylim(0,80) +
+  scale_x_continuous(breaks=seq(1,6,by=1)) +
+  facet_wrap( ~ id)
+
+#APA style
+#ggplot version .. see also http://ggplot.yhathq.com/docs/index.html
+ggplot(data = wisclong[wisclong$id<21,], aes(x = grade, y = verb, group = id)) +
+  geom_point() + 
+  geom_line() +
+  xlab("Grade") + 
+  ylab("WISC Verbal Score") + ylim(0,100) +
+  scale_x_continuous(breaks=seq(1,6,by=1)) +
+  #title
+  ggtitle("Intraindividual Change in Verbal Ability") +
+  #theme with white background
+  theme_classic() + 
+  #increase font size of axis and point labels
+  theme(axis.title = element_text(size = rel(1.5)),
+        axis.text = element_text(size = rel(1.2)),
+        legend.position = "none")
+```
+# Saving the plot file. 
+See also … http://www.cookbook-r.com/Graphs/Output_to_a_file/
+
+```{r savefile}
+#ggsave(filename = default_name(plot), plot = last_plot(), device = default_device(filename), 
+#       path = NULL, scale = 1, width = par("din")[1], height = par("din")[2], 
+#       units = c("in", "cm", "mm"), dpi = 300, limitsize = TRUE, ...)
+ggsave(filename = "wiscverbal.png", width = 5, height = 5, dpi=300)
+
+```
+
+
+
+
